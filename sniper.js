@@ -441,7 +441,6 @@ function displayWallet() {
 }
 
 function displayPotResult(vault) {
-    // get amt from contract
     let winnings = vault;
     let affiliateBonus = 0;
     // 10% aff.

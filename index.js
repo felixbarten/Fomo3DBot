@@ -189,6 +189,7 @@ function innerLoop() {
     }
 
     if (loopCnt2 > 50 && config.debugging) {
+        PlayerBook.removeInactivePlayers();
         Utils.logStackTrace(false);
         var memory =process.memoryUsage();
         Utils.error(`${memory.heapUsed}/${memory.heapTotal} used.`, "INFO", true);
