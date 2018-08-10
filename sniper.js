@@ -5,20 +5,23 @@ const PlayerBook = require('./playerbook.js');
 const Utils = require('./utils.js');
 const web3 = new Web3(new Web3.providers.WebsocketProvider(config.nodeWS));
 const infura = new Web3(new Web3.providers.HttpProvider(config.fallbackNode));
+const fs = require('fs');
+
+//var transactionLog = fs.createWriteStream(config.sniper.logFile, {flags: 'a'});
+
 
 //Contract needs correct ABI to handle requests.
 contractAbi = config.contractABI;
 //Address to contract
 var contractAddr = config.contractAddress;
 // set default account
-//web3.eth.defaultAccount = web3.eth.accounts[2];
 //create contract variable
 var GameContract = new web3.eth.Contract(contractAbi, contractAddr);
 
 var blocks = [];
 var blocksToSave = 20;
 // 0,01 ether.
-var buyin = 10000000000000000;
+var buyin = web3.utils.toWei('0.01', 'ether');
 var transactionNonce = 0;
 var accountNonce = 0;
 var transactionSent = false;
@@ -26,21 +29,18 @@ var transaction = null;
 var transactionConfirmed = false;
 var transactions = [];
 
+
 function init() {
 
     getNonce(config.sniper.walletAddr).then(result => {
         accountNonce = result;
     });
-    /*
-    * have to manually create GETH accounts from private key. Then set to default.
-    */
-    web3.eth.personal.unlockAccount(config.sniper.walletAddr, config.sniper.passphrase, 600)
-	.then((response) => {
-		Utils.print(` Account unlock was successful: ${response}`);
-	}).catch((error) => {
-		Utils.print(`Error during account unlock: ${error}`);
+
+    unlockAccountAsync().then(unlockResult => {
+        Utils.print(`Unlockresult: ${unlockResult}`);
+        web3.eth.defaultAccount = web3.eth.personal[0];
     });
-    web3.eth.defaultAccount = web3.eth.personal[0];
+    
     console.log(`default account is: ${web3.eth.defaultAccount}`)
 
 }
@@ -71,9 +71,16 @@ function snipeICO(timeleft, roundNum) {
         Utils.debug(`Time Check: ${timeCheck}, Gas check: ${gasCheck}, Block time check: ${blockTimeCheck}`);
 
         if (timeCheck && blockTimeCheck && gasCheck && !transactionSent) {
-            init();
-            // this call will waste real money.
-            buyICO(roundNum);
+            isUnlocked().then(accResult => {
+                if(accResult === false) {
+                    unlockAccountAsync().then(res => {
+                        Utils.debug(`${res}`);
+                    });
+                }
+                // this call will waste real money.
+                buyICOKeys(roundNum);
+            });
+
         } else {
             if (!transactionSent) {
                 if (!timeCheck) Utils.print(`Transaction aborted due to time on contract: ${timeleft}`);
@@ -89,47 +96,44 @@ function snipeICO(timeleft, roundNum) {
     });
 }
 
-function calcAVGBlockTime() {
-    let blockTime = NaN;
-    let avgBlockTime = 0;
-    if (blocks.length > 2) {
-         blockTime = (blocks[blocks.length -1].timestamp - blocks[0].timestamp);
-         avgBlockTime = blockTime / blocks.length;
-    }
-    return avgBlockTime;
-}
+/*
+async function unlockAccountAsync2() {
+    // have to manually create GETH accounts from private key. Then set to default.
+    
+   var unlockPromise = web3.eth.personal.unlockAccount(config.sniper.walletAddr, config.sniper.passphrase, 600)
+   .then((response) => {
+       Utils.print(` Account unlock was successful: ${response}`);
+       return true;
+   }).catch((error) => {
+       Utils.print(`Error during account unlock: ${error}`);
+       return false;
+   });
+   return await unlockPromise;
 
-function addBlock(block) {
+}*/
 
-    if (blocks.length > blocksToSave) {
-        removeBlocks();
-    }
-    if (block === undefined) {
-        getLastBlock().then(result => {
-            blocks.push(result);
+async function unlockAccountAsync() {
+    let unlocked = false;
+    isUnlocked().then(result => {
+        unlocked = result;
+    });
+    if (!unlocked) { 
+        var unlockPromise = web3.eth.personal.unlockAccount(config.sniper.walletAddr, config.sniper.passphrase, 600)
+        .then((response) => {
+            Utils.print(` Account unlock was successful: ${response}`);
+            return true;
+        }).catch((error) => {
+            Utils.print(`Error during account unlock: ${error}`);
+            return false;
         });
-    } else {
-        blocks.push(block);
+        return await unlockPromise;
     }
-}
-
-function removeBlocks() {
-    // prune blocks until blocks back to normal size. 
-    for (let block of blocks) {
-        if (blocks.length > blocksToSave) {
-            removeBlock();
-        }
-    }
-}
-
-function removeBlock() {
-    // fifo.
-    blocks.splice(0,1);
+    return true;
 }
 
 async function isWalletUnlocked() {
     var accounts = web3.eth.personal.getAccounts();
-
+    Utils.debug(`Checking if accounts are unlocked`);
     accounts = await accounts; 
     if (accounts.length === 0) {
         return false;
@@ -141,7 +145,12 @@ async function isWalletUnlocked() {
     return false;
 }
 
-function buyICO(roundNum) {
+/**
+ * Sends a transaction to the smart contract to buy keys for X.XX ETH.
+ * Caution: real money on the line here.
+ * @param {Number} roundNum 
+ */
+function buyICOKeys(roundNum) {
     isWalletUnlocked().then(result => {
         if(result === false) {
             Utils.print(`Wallet is not unlocked....`);
@@ -150,27 +159,33 @@ function buyICO(roundNum) {
     });
     Utils.print(`Attempting to send buy transaction to contract`);
     // sets up transaction with affiliate address and snek lyfe. 
-    var transactionPromise = GameContract.methods.buyXaddr(config.sniper.affiliateAddress, 2).send({
+    GameContract.methods.buyXaddr(config.sniper.affiliateAddress, 2).send({
         from: config.sniper.walletAddr,
-        gasPrice: web3.utils.toWei('20', 'gwei'),
+        gasPrice: web3.utils.toWei(config.sniper.ICOGas, 'gwei'),
         gas: 360000,
         value: buyin
     })
     .on('transactionHash', function(hash){
+        Utils.insertDividerLine();
         Utils.print(`Transaction sent: ${hash}`);
+        Utils.insertDividerLine();
         transactionSent = true;
     })
     .on('confirmation', function(confirmationNumber, receipt){
-        Utils.print(`Transaction is confirmed: ${confirmationNumber} times`);
+        if(confirmationNumber < 5) {
+            Utils.print(`Transaction is confirmed: ${confirmationNumber} times`);
+        }
         if(confirmationNumber > 1) {
             // after transaction has been mined at least once no point in sending a cancel after it.
             transactionConfirmed = true;
         }
     })
     .on('receipt', function(receipt){
-        Console.log(receipt);
+        Utils.debug(receipt);
+        Utils.print(`Transaction receipt: ${receipt}`);
         transaction = receipt;
         var ico = checkICO();
+        Utils.debug(`ICO status: ${ico}`)
         if(ico.succes) {
             Utils.print(`We GOT IN the ICO! Bough ${ico.keys} for an average of ${ico.paid}`);
         } else {
@@ -215,8 +230,8 @@ function checkICO() {
 }
 
 /**
- * Performs a cancelling transaction by sending to own address with a high gas price. 
- * *important* the nonce needs to be the same one as the transaction we're trying to get rid off. 
+ * Performs a cancelling transaction by sending to own address with a high(er) gas price. 
+ * *important* the nonce needs to be the same one as the transaction we're trying to cancel.
  * Otherwise both transactions will succeed 
  */
 async function cancelTransaction(roundNum){
@@ -228,7 +243,7 @@ async function cancelTransaction(roundNum){
             to: config.sniper.walletAddr,
             value: 0,
             gas: 22000,
-            gasPrice: web3.utils.toWei('50', 'gwei'),
+            gasPrice: web3.utils.toWei(config.sniper.cancelGas, 'gwei'),
             nonce: accountNonce
         })
         .on('transactionHash', function(hash) {
@@ -238,8 +253,8 @@ async function cancelTransaction(roundNum){
             txhash = hash;
         })
         .on("receipt", function(receipt) {
-            Utils.print(receipt);
-            Utils.debug(receipt);
+            Utils.print(JSON.stringify(receipt));
+            Utils.debug(JSON.stringify(receipt));
         })
         .on("confirm", function(confirm){
             Utils.print(`CONFIRMED CANCEL TRANSACTION ${confirm}`);
@@ -257,7 +272,7 @@ async function cancelTransaction(roundNum){
         return await transaction;
 
     } catch (e) {
-        Utils.print(e);
+        Utils.print(`Error with cancel transaction: ${e}`);
         Utils.error(e, "CRITICAL");
     }
 
@@ -298,6 +313,10 @@ async function transfer(addr) {
 
 async function withdrawCTR(amount){
     try {
+        if (!config.sniper.enableWithdraw) {
+            Utils.debug(`withdrawing is disabled.`);
+            return;
+        }
         var withdrawTransaction =  GameContract.methods.withdraw().send({
             from: config.sniper.walletAddr,
             gasPrice: web3.utils.toWei('3', 'gwei'),
@@ -323,7 +342,7 @@ async function withdrawCTR(amount){
         });
         return await withdrawTransaction();
     } catch (e) {
-        Utils.print(e);
+        Utils.print(`Error with withdrawing: ${e}`);
         Utils.error(e, "CRITICAL");
     }
 }
@@ -333,18 +352,16 @@ async function getNonce() {
     try{
         return await web3.eth.getTransactionCount(config.sniper.walletAddr);
     } catch(e) {
-        Utils.error("Couldn't retrieve block.", "ERR");
+        Utils.error(`Couldn't retrieve block. ${e}`, "ERR");
     } 
 }
 
-
-// TODO
+// Returns the balance of the player 
 async function getVaultBalance() {
     try{
-        playerInfo = await  web3.eth.getPlayerInfoByAddress(config.sniper.walletAddr);
-        return (playerInfo[3] + playerInfo[4] + playerInfo[5]);
+        return await  web3.eth.getPlayerInfoByAddress(config.sniper.walletAddr);
     } catch(e) {
-        Utils.error("Couldn't retrieve block.", "ERR");
+        Utils.error(`Couldn't retrieve vault balance. ${e}`, "ERR");
     } 
 }
 
@@ -352,7 +369,7 @@ async function getBalance() {
     try{
         return await web3.eth.getBalance(config.sniper.walletAddr);
     } catch(e) {
-        Utils.error("Couldn't retrieve block.", "ERR");
+        Utils.error(`Couldn't retrieve account balance. ${e}`, "ERR");
     } 
 }
 
@@ -364,7 +381,7 @@ async function getLastBlock() {
         });
         return await blockPromise;
     } catch(e) {
-        Utils.error("Couldn't retrieve block.", "ERR");
+        Utils.error(`Couldn't retrieve block. ${e}`, "ERR");
     } 
 }
 
@@ -378,7 +395,7 @@ async function getGasPrice(){
         result = gasResult;
 
     } catch(e) {
-        Utils.error("Couldn't retrieve gas price.", "ERR");
+        Utils.error(`Couldn't retrieve gas price. ${e}`, "ERR");
     }
 
     try {
@@ -394,7 +411,7 @@ async function getCurrentBlockNum() {
     try {
         return await web3.eth.getBlockNumber();
     } catch(e) {
-        Utils.error("Couldn't retrieve block number.", "ERR");
+        Utils.error(`Couldn't retrieve block number. ${e}`, "ERR");
     } 
 }
 
@@ -403,7 +420,7 @@ async function getBoughtKeys() {
     try {
         return await web3.eth.getPlayerInfoByAddress(config.sniper.walletAddr);
     } catch(e) {
-        Utils.error("Couldn't retrieve ICO key price.", "ERR");
+        Utils.error(`Couldn't retrieve ICO key price. ${e}`, "ERR");
     }
 }
 
@@ -411,7 +428,7 @@ async function getICOPrice(round) {
     try {
         return await web3.eth.calcAverageICOPhaseKeyPrice(round);
     } catch(e) {
-        Utils.error("Couldn't retrieve ICO key price.", "ERR");
+        Utils.error(`Couldn't retrieve ICO key price. ${e}`, "ERR");
     }
 }
 //#endregion
@@ -419,6 +436,49 @@ async function getICOPrice(round) {
 
 function listMethods(){
     Utils.print(GameContract.methods);
+}
+
+function calcAVGBlockTime() {
+    let blockTime = NaN;
+    let avgBlockTime = 0;
+    if (blocks.length > 2) {
+        blockTime = (blocks[blocks.length -1].timestamp - blocks[0].timestamp);
+        avgBlockTime = blockTime / blocks.length;
+        Utils.debug(`Timestamp of last block: ${blocks[blocks.length - 1].timestamp} Timestamp of newest block: ${blocks[0].timestamp} \n ${blockTime}`);
+        Utils.debug(`Average block time over ${blocks.length} blocks: ${avgBlockTime}`);
+
+    }
+    return avgBlockTime;
+}
+
+function addBlock(block) {
+    if (blocks.length > blocksToSave) {
+        removeBlocks();
+    }
+    /*
+    if (blocks.length == blocksToSave) {
+        Utils.debug(`Blocks: ${JSON.stringify(blocks, null, 2)}`);
+    }*/
+    if (block === undefined) {
+        getLastBlock().then(result => {
+            blocks.push(result);
+        });
+    } else {
+        blocks.push(block);
+    }
+}
+
+function removeBlocks() {
+    Utils.debug(`Checking for pruning: ${blocks.length}`);
+    // prune blocks until blocks back to normal size. 
+    while(blocks.length > blocksToSave ) {
+        removeBlock();
+    }
+}
+
+function removeBlock() {
+    // fifo.
+    blocks = blocks.splice(0,1);
 }
 
 function updateBlockInformation(block) {
@@ -433,11 +493,12 @@ function displayBlockTime() {
  * Displays information about our current wallet.
  */
 function displayWallet() {
-    let balance = getBalance(web3.eth.defaultAccount);
-    Utils.insertDividerLine();
-    Utils.print(`Current bot wallet holds: ${balance} ETH. Can participate in: ${balance/buyin} ICO's.`);
-    Utils.insertDividerLine();
-
+    getBalance(web3.eth.defaultAccount).then(result => {
+        Utils.insertDividerLine();
+        let resultETH = web3.utils.fromWei(web3.utils.toBN(result), 'ether');
+        Utils.print(`Current bot wallet holds: ${resultETH} ETH. Can participate in: ${result / buyin} ICO's.`);
+        Utils.insertDividerLine();
+    });
 }
 
 function displayPotResult(vault) {
@@ -463,24 +524,42 @@ function displayPotResult(vault) {
 }
 
 function withdrawOrPostpone() {
-    // get winnings from contract
-    let winningsWei = getVaultBalance();
-    let winnings =  web3.utils.fromWei(winningsWei, 'ether');
-    let worthWithdrawing = winnings > 0.003;
+    getVaultBalance().then(result => {
+        //get winnings from winning, affiliate and dividends.
+        let winningsWei = web3.utils.toBN(result[3] + result[4] + result[5]);
+        let winnings =  web3.utils.fromWei(winningsWei, 'ether');
+        let worthWithdrawing = winnings > 0.003;
 
-    // logic to see if winnings worth withdrawing
-    if (worthWithdrawing) {
-        withdrawCTR();
-    } 
-    displayPotResult(winningsWei);
+        // logic to see if winnings worth withdrawing
+        if (worthWithdrawing) {
+            withdrawCTR();
+        } 
+        displayPotResult(winningsWei);
+    });
+}
+
+async function isUnlocked (web3, address) {
+    Utils.debug(`Attempting signing`);
+    try {
+        await web3.eth.sign("", address);
+    } catch (e) {
+        return false;
+    }
+    return true;
 }
 
 function reset() { 
     withdrawOrPostpone();
-
+    Utils.print("Resetting sniper state.");
     transactionConfirmed = false;
     transactionSent = false; 
     transaction = null;
+    Utils.debug(`Sniper module is ready?: ${sniperReady()}`);
+}
+
+// returns boolean if sniper is able to be used again for next round
+function sniperReady(){
+    return !transactionConfirmed && !transactionSent && !transactionConfirmed;
 }
 
 //#region tests
@@ -529,5 +608,10 @@ module.exports = {
     sniperTests: startTests,
     gasPriceTest: gasPriceTest,
     init: init,
-    reset: reset
+    reset: reset,
+    cancelTransaction: cancelTransaction,
+    buyICOKeys: buyICOKeys,
+    withdraw: withdrawCTR,
+    gasPrice: getGasPrice,
+    isReady: sniperReady
 };
