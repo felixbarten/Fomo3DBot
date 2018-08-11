@@ -56,10 +56,21 @@ I::::::::I     CCC::::::::::::C   OO:::::::::OO
 IIIIIIIIII        CCCCCCCCCCCCC     OOOOOOOOO     
 `);
 },
-wakeUpSmall: function() {},
-wakeUpSmallAlt: function() {},
+printWakeUpSmall: function() {
+console.log(`
+               _                      _ 
+              | |                    | |
+__      ____ _| | _____   _   _ _ __ | |
+\\ \\ /\\ / / _\` | |/ / _ \\ | | | | '_ \\| |
+ \\ V  V / (_| |   <  __/ | |_| | |_) |_|
+  \\_/\\_/ \\__,_|_|\\_\\___|  \\__,_| .__/(_)
+                               | |      
+                               |_|      
+`);
+},
+printWakeUpSmallAlt: function() {},
 
-wakeUpLarge: function() {
+printWakeUpLarge: function() {
     
                                                                                                                                             
                                  console.log(`                                                                                                           
