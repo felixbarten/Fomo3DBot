@@ -161,11 +161,11 @@ function loop(timeLeft) {
         Utils.print("Node returned bad result.");
         return;
     }
-    Utils.debug(`${detectICO()} [detectICO]`);
     // check if we're in ICO
     if (timeLeft <= 60  && ICOSupported) {
         detectICO().then(result => {
             Utils.debug(`detectico result: ${result}`)
+            // explicit checks because result could be anything.
             if (result === true) {
                 Utils.insertDividerLine();
                 if (config.useAscii) {
@@ -394,7 +394,7 @@ async function detectICO() {
         inICO =  (difference <= config.sniper.abortICO);
        // Utils.print((difference <= config.sniper.abortICO));
         Utils.debug(`${currentTime}, ${startTime}, ${difference}`);
-        Utils.debug(`[DetecftICO] We are in ICO: ${inICO}`);
+        Utils.debug(`[DetectICO] We are in ICO: ${inICO}`);
         return inICO;
     });
 
@@ -422,6 +422,9 @@ function cleanUp() {
 
   // catch ctrl+c event and exit normally
  process.on('SIGINT', function () {
+    if(config.sniper.isEnabled) {
+        Sniper.logPlayer("Shutting down");
+    }
     Utils.print('Ctrl-C...');
     Utils.exitProgram();
     process.exit(2);

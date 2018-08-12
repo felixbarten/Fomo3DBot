@@ -7,10 +7,6 @@ const web3 = new Web3(new Web3.providers.WebsocketProvider(config.nodeWS));
 const infura = new Web3(new Web3.providers.HttpProvider(config.fallbackNode));
 const Contract = require('./contract.js');
 const fs = require('fs');
-
-//var transactionLog = fs.createWriteStream(config.sniper.logFile, {flags: 'a'});
-
-
 //Contract needs correct ABI to handle requests.
 contractAbi = config.contractABI;
 //Address to contract
@@ -33,6 +29,8 @@ var transactionLog = fs.createWriteStream(config.sniper.logFile, {flags: 'a'});
 var accountLog = fs.createWriteStream(config.sniper.accountLog, {flags: 'a'});
 var sessionLogged =false;
 var startAmount = 0;
+var buyTransactions = 0;
+var affiliateShare = buyin * 0.1;
 
 function initialize() {
 
@@ -48,7 +46,7 @@ function initialize() {
     console.log(`default account is: ${web3.eth.defaultAccount}`);
 }
 
-function logPlayer() {
+function logPlayer(event) {
     let botBalance = web3.utils.toBN(0);
     let winnings = web3.utils.toBN(0);
 
@@ -64,7 +62,9 @@ function logPlayer() {
 
         Contract.getPersonalBalance().then(personal => {
             botBalance = web3.utils.fromWei(web3.utils.toBN(personal), 'ether');
-            var total = winnings + botBalance;
+            var total = Number(winnings) + Number(botBalance);
+            var totalAffiliateWei = Number(affiliateShare) * Number(buyTransactions);
+            var totalAffiliateETH = web3.utils.fromWei(web3.utils.toBN(totalAffiliateWei), 'ether');
             // only trigger on first run.
             if (!sessionLogged) {
                 startAmount = Number(botBalance) + Number(winnings);
@@ -72,7 +72,9 @@ function logPlayer() {
                 sessionLogged = true;
                 return;
             }
-            accountLog.write(`${Utils.timestamp()} Report: Bot has ${botBalance} and ${winnings} in the vault for a total of: ${total} ETH \n`);
+            accountLog.write(`${Utils.timestamp()} Report due to ${event}: Bot has ${botBalance} and ${winnings} in the vault for a total of: ${total} ETH \n
+            We've sent ${buyTransactions} transactions this session with a total affiliate bonus of ${totalAffiliateETH} \n
+            `);
 
         });
 
@@ -215,6 +217,7 @@ function buyICOKeys(roundNum) {
         Utils.insertDividerLine();
         Utils.print(`Transaction sent: ${hash}`);
         transactionLog.write(`Transaction sent: ${hash}`);
+        accountLog.write(`Sent ICO bid of ${buyin} ETH. \n`);
         Utils.insertDividerLine();
         transactionSent = true;
     })
@@ -222,7 +225,11 @@ function buyICOKeys(roundNum) {
         if(confirmationNumber < 5) {
             Utils.print(`Transaction is confirmed: ${confirmationNumber} times`);
         }
+        if (confirmationNumber == 1) {
+            buyTransactions++; // increment amount of buys by one as soon as transaction is confirmed.
+        }
         if(confirmationNumber > 1) {
+            
             // after transaction has been mined at least once no point in sending a cancel after it.
             transactionConfirmed = true;
         }
@@ -383,10 +390,14 @@ async function withdrawCTR(amount, overrideNonce){
         .on('transactionHash', function(hash){
             Utils.insertDividerLine();
             Utils.print(`Withdraw sent: ${hash} for ${amount} ETH`);
+            accountLog.write(`Withdrawing ${amount} ETH from Vault. \n`);
             Utils.insertDividerLine();
         })
         .on('confirmation', function(confirmationNumber, receipt){
-            Utils.print(`Withdraw is confirmed: ${confirmationNumber} times`);
+            if (confirmationNumber <5) {
+                Utils.print(`Withdraw is confirmed: ${confirmationNumber} times`);
+            }
+            
         })
         .on('receipt', function(receipt){
             Utils.print(receipt);
@@ -529,7 +540,7 @@ function withdrawOrPostpone() {
         // logic to see if winnings worth withdrawing
         if (worthWithdrawing) {
             Utils.debug(`[withdrawOrPostpone()] Attempting withdraw`);
-            withdrawCTR();
+            withdrawCTR(winnings);
         } 
         displayPotResult(winningsWei);
     });
@@ -546,7 +557,7 @@ async function isUnlocked (web3, address) {
 }
 
 function reset() { 
-    logPlayer();
+    logPlayer("New Round");
     withdrawOrPostpone();
     Utils.print("Resetting sniper state.");
     transactionConfirmed = false;
