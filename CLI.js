@@ -125,7 +125,7 @@ async function getSyncStatus(){
 function subscribe() {
     subscription = web3.eth.subscribe("newBlockHeaders", function(error, result) {
         if (error) {
-            Utils.error(`Can't subscribe to new Block headers: ${error}`, "CRITICAL", true);
+            Utils.error(`Can't subscribe to new Block headers: ${error}`, "CRITICAL", true, true);
         }
     })
    .on("data", pollContract);
@@ -167,7 +167,7 @@ function loop(timeLeft) {
     // check if we're in ICO
     if (timeLeft <= 60  && ICOSupported) {
         detectICO().then(result => {
-            Utils.debug(`detectico result: ${result}`)
+            Utils.debug(`[loop] ICO result: ${result}`);
             // explicit checks because result could be anything.
             if (result === true) {
                 Utils.insertDividerLine();
@@ -309,29 +309,6 @@ function displayTimeLeft(time) {
         Utils.print(`Time left on contract: ${time} seconds`);
     }
 }
-
-/*
-function getCurrentPlayer() {
-    var result = GameContract.methods.getCurrentRoundInfo().call()
-    .then(function(res) {
-        currentPlayerAddr = res[7];
-        // check if player is in book
-        PlayerBook.processPlayer(res[7]).then(playerResult => {
-            // if player obj is empty go to old display method.
-            Utils.debug(`Fetched player object: ${JSON.stringify(playerResult)}`);
-            if (playerResult === null) {
-                Contract.getBalanceAddress(res[7]).then(balanceResult => {
-                    outputPlayer(res[7], balanceResult);
-                });
-            } else {
-                fancyOutput(playerResult);
-            }
-        });
-    }, function(fail) {
-        Utils.print(`Current Round Call failed: ${fail}`);
-    });
-}
-*/
 
 function getCurrentPlayer() {
     Contract.getCurrentRoundInfo().then(result => {

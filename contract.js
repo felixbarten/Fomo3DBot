@@ -40,7 +40,7 @@ async function getPersonalBalance() {
     }   
      catch (e) {
         Utils.print("Couldn't retrieve Account Balance.");
-        Utils.error(e);
+        Utils.error(`Couldn't retrieve bot's account balance. ${e}`, "ERR", true, true);
     }
 }
 
@@ -63,7 +63,7 @@ async function getBalance() {
         return balancePromise;
     } catch (e) {
         Utils.print(`Couldn't retrieve Account Balance for: ${currentPlayerAddr}`);
-        Utils.error(e);
+        Utils.error(`Couldn't retrieve Account Balance for: ${currentPlayerAddr} ${e}`, "ERR", false, true);
     }
 }
 
@@ -79,7 +79,7 @@ async function getBalanceAddr(address) {
         return balancePromise;
     } catch(e) {
         Utils.print(`Couldn't receive balance for account: ${address}.`);
-        Utils.error(e);
+        Utils.error(`Could not receive balance for address: ${address} ${e}`, "ERR", false, true);
     }
 }
 
@@ -88,7 +88,7 @@ async function getCurrentRoundInfo(){
         return await GameContract.methods.getCurrentRoundInfo().call();//result;
     } catch (e) {
         Utils.print("Error whilst retrieving round information.");
-        Utils.error(e);
+        Utils.error(`Could not receive round information ${e}`, "ERR", false, true);
     }
 }
 
@@ -100,6 +100,7 @@ async function getLastBlock() {
         });
         return await blockPromise;
     } catch(e) {
+        Utils.print(`Can't retrieve latest ETH block.`);
         Utils.error(`Couldn't retrieve block. ${e}`, "ERR");
     } 
 }
@@ -113,7 +114,7 @@ async function getGasPrice(){
         result = gasResult;
 
     } catch(e) {
-        Utils.error(`Couldn't retrieve gas price. ${e}`, "ERR");
+        Utils.error(`Couldn't retrieve gas price. ${e}`, "ERR", false, true);
     }
 
     try {
@@ -129,7 +130,7 @@ async function getCurrentBlockNum() {
     try {
         return await web3.eth.getBlockNumber();
     } catch(e) {
-        Utils.error(`Couldn't retrieve block number. ${e}`, "ERR");
+        Utils.error(`Couldn't retrieve block number. ${e}`, "ERR", false, true);
     } 
 }
 
@@ -138,7 +139,7 @@ async function getBoughtKeys() {
     try {
         return await GameContract.methods.getPlayerInfoByAddress(config.sniper.walletAddr).call();
     } catch(e) {
-        Utils.error(`Couldn't retrieve ICO key price. ${e}`, "ERR");
+        Utils.error(`Couldn't retrieve ICO key price. ${e}`, "ERR", false, true);
     }
 }
 
@@ -146,7 +147,7 @@ async function getICOPrice(round) {
     try {
         return await GameContract.methods.calcAverageICOPhaseKeyPrice(round).call();
     } catch(e) {
-        Utils.error(`Couldn't retrieve ICO key price. ${e}`, "ERR");
+        Utils.error(`Couldn't retrieve ICO key price. ${e}`, "ERR", false, true);
     }
 }
 //#endregion
@@ -156,7 +157,7 @@ async function getRemainingContractTime() {
     try {
         return await GameContract.methods.getTimeLeft().call();
     } catch (e) {
-        Utils.error(e, "CRITICAL", true);
+        Utils.error(`Error while fetching the contract time ${e}`, "CRITICAL", true, true);
         Utils.print("Failed to get remaining time for round. See Error log");
     }
 }
@@ -167,7 +168,7 @@ async function getRemainingTime() {
         var time = await timePromise;
         loop(time);
     } catch (e) {
-        Utils.error(e, "CRITICAL", true);
+        Utils.error(`Error while fetching the contract time ${e}`, "CRITICAL", false, true);
         Utils.print("Failed to get remaining time for round. See Error log");
     }
 }
@@ -180,7 +181,7 @@ async function getKeyBuyPrice() {
         return await GameContract.methods.getBuyPrice().call();
     } catch(e) {
         Utils.print("Couldn't retrieve Key buy price.");
-        Utils.error(e);
+        Utils.error(`Couldn't retrieve key price. ${e}`, "ERR", false, true);
     }
     return NaN;
 }
@@ -190,7 +191,7 @@ async function getContractName() {
         return await GameContract.methods.name().call();
     } catch(e) {
         Utils.print("Couldn't retrieve Contract Name.");
-        Utils.error(e);
+        Utils.error(`Couldn't retrieve name of the contract. ${e}`, "ERR", false, true);
     }
     return NaN;
 }
