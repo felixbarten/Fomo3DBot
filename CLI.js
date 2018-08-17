@@ -89,6 +89,9 @@ function init() {
         }
     }
     Utils.print("Node is synced!");
+    if (config.debugging) {
+        Utils.debug(`Started new Debugging session!`);
+    }
 }
 
 //#region Node status
@@ -244,9 +247,9 @@ function innerLoop() {
 
     if (loopCnt2 > 50 && config.debugging) {
         PlayerBook.removeInactivePlayers();
-        Utils.logStackTrace(false);
+        //Utils.logStackTrace(false);
         var memory =process.memoryUsage();
-        Utils.error(`${memory.heapUsed}/${memory.heapTotal} used.`, "INFO", true);
+        Utils.debug(`${memory.heapUsed}/${memory.heapTotal} used.`, false);
         loopCnt2 = 0;
     }
 }
@@ -270,9 +273,9 @@ function outputPlayer(addr, balance) {
             Utils.print(`[o] Current Exit Scammer is: ${addr}`);
     } else {
         if(isOwnAddress(addr)) {
-            Utils.print(`You are the current exit scammer!`);
+            Utils.print(`[o] You are the current exit scammer!`);
         } else {
-            Utils.print(`Current Exit Scammer is: ${addr}`);
+            Utils.print(`[o] Current Exit Scammer is: ${addr}`);
         }
 
     }
@@ -284,7 +287,7 @@ function isOwnAddress(address) {
 
 function fancyOutput(playerObj) {
     var displayStr = "";
-    if (playerObj.name != undefined && playerObj.name != '') {
+    if (playerObj.name !== undefined && playerObj.name !== '') {
         displayStr = playerObj.name;
     } else {
         displayStr = playerObj.address;
@@ -307,16 +310,18 @@ function displayTimeLeft(time) {
     }
 }
 
+/*
 function getCurrentPlayer() {
     var result = GameContract.methods.getCurrentRoundInfo().call()
     .then(function(res) {
         currentPlayerAddr = res[7];
         // check if player is in book
-        PlayerBook.processPlayer(currentPlayerAddr).then(playerResult => {
+        PlayerBook.processPlayer(res[7]).then(playerResult => {
             // if player obj is empty go to old display method.
-            if (playerResult == null) {
-                Contract.getBalanceAddress(currentPlayerAddr).then(balanceResult => {
-                    outputPlayer(currentPlayerAddr, balanceResult);
+            Utils.debug(`Fetched player object: ${JSON.stringify(playerResult)}`);
+            if (playerResult === null) {
+                Contract.getBalanceAddress(res[7]).then(balanceResult => {
+                    outputPlayer(res[7], balanceResult);
                 });
             } else {
                 fancyOutput(playerResult);
@@ -326,6 +331,29 @@ function getCurrentPlayer() {
         Utils.print(`Current Round Call failed: ${fail}`);
     });
 }
+*/
+
+function getCurrentPlayer() {
+    Contract.getCurrentRoundInfo().then(result => {
+        currentPlayerAddr = result[7];
+        //Utils.debug(`Fetched round object: ${JSON.stringify(result)}`);
+
+        // check if player is in book
+        PlayerBook.processPlayer(result[7]).then(playerResult => {
+            // if player obj is empty go to old display method.
+            Utils.debug(`Fetched player object in CLI: ${JSON.stringify(playerResult)}`);
+            if (playerResult === null || playerResult === undefined) {
+                Contract.getBalanceAddress(result[7]).then(balanceResult => {
+                    outputPlayer(result[7], balanceResult);
+                });
+            } else {
+                fancyOutput(playerResult);
+            }
+        });
+    });
+}
+
+
 
 function getCurrentRndNumber() {
     Contract.getCurrentRoundInfo().then(rndResult => {

@@ -62,23 +62,23 @@ async function getBalance() {
         });
         return balancePromise;
     } catch (e) {
-        Utils.print("Couldn't retrieve Account Balance.");
+        Utils.print(`Couldn't retrieve Account Balance for: ${currentPlayerAddr}`);
         Utils.error(e);
     }
 }
 
 // same as getBalance but takes address argument.
-async function getBalanceAddr(addr) {
+async function getBalanceAddr(address) {
     try {
-        if (addr == undefined) {
+        if (address == undefined) {
             Utils.print("Address not set");
             return NaN;
         }
-        var balancePromise = await web3.eth.getBalance(addr);
+        var balancePromise = await web3.eth.getBalance(address);
         currentPlayerBalance = balancePromise;
         return balancePromise;
     } catch(e) {
-        Utils.print(`Couldn't receive balance for account: ${addr}.`);
+        Utils.print(`Couldn't receive balance for account: ${address}.`);
         Utils.error(e);
     }
 }
@@ -103,7 +103,6 @@ async function getLastBlock() {
         Utils.error(`Couldn't retrieve block. ${e}`, "ERR");
     } 
 }
-
 async function getGasPrice(){ 
     var result = null;
     var gasResult = 0;
@@ -155,8 +154,7 @@ async function getICOPrice(round) {
 //#region polling
 async function getRemainingContractTime() {
     try {
-        var timePromise = GameContract.methods.getTimeLeft().call();
-        return await timePromise;
+        return await GameContract.methods.getTimeLeft().call();
     } catch (e) {
         Utils.error(e, "CRITICAL", true);
         Utils.print("Failed to get remaining time for round. See Error log");
@@ -179,8 +177,7 @@ async function getRemainingTime() {
 
 async function getKeyBuyPrice() {
     try {
-        var buyPromise = GameContract.methods.getBuyPrice().call();
-        return await buyPromise;
+        return await GameContract.methods.getBuyPrice().call();
     } catch(e) {
         Utils.print("Couldn't retrieve Key buy price.");
         Utils.error(e);
@@ -190,8 +187,7 @@ async function getKeyBuyPrice() {
 
 async function getContractName() {
     try {
-        var namePromise = GameContract.methods.name().call();
-        return await namePromise;
+        return await GameContract.methods.name().call();
     } catch(e) {
         Utils.print("Couldn't retrieve Contract Name.");
         Utils.error(e);

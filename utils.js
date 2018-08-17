@@ -96,6 +96,8 @@ function separateLines() {
  * Closes output streams before exiting.
  */
 function exitProgram() {
+    debug(`Finished debugging session.`);
+    error(`Finished error logging`);
     logFile.close();
     debugLog.close();
     errorLog.close();
