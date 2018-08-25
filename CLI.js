@@ -13,6 +13,12 @@ const Sniper = require('./sniper.js');
 const beep = require('beepbeep');
 const Ascii = require('./ascii.js');
 const Contract = require('./contract.js');
+const Blocks = require('./blocktimes.js');
+const colors = require('colors/safe')
+const {
+    performance,
+    PerformanceObserver
+  } = require('perf_hooks');
 //#region variables
 const web3 = new Web3(new Web3.providers.WebsocketProvider(config.nodeWS));
 //Contract needs correct ABI to handle requests.
@@ -40,9 +46,9 @@ var subscription = null;
 var inICO = false;
 //#endregion
 
-/*
-Function main will be the starting point of this application and will start the infinite loop of getRemainingTime() and loop()
-*/
+/**
+ * Start of the program. Initialized modules and then starts the program loop by subscribing to blockchain events.
+ */
 function main() {
     init();
     printOptions();
@@ -65,32 +71,35 @@ function main() {
 }
 
 function printOptions() {
-    Utils.print(`Module ICO sniping is: ${config.sniper.isEnabled ? 'ENABLED' : 'NOT enabled'}`);
-    Utils.print(`Audio notifications are ${config.isMuted ? 'disabled' : 'enabled'}`);
+    Utils.print(`Module ICO sniping is: ${config.sniper.isEnabled ? colors.green('ENABLED') : colors.red('NOT')} enabled`);
+    Utils.print(`Audio notifications are ${config.isMuted ? colors.red('disabled') : colors.green('enabled')}`);
     if(config.useAscii) {
-        Utils.print(`Ascii message are enabled. Don't say you weren't warned.`);
+        Utils.print(`Ascii message are ${colors.green('enabled')}. Don't say you weren't warned.`);
     }
-    if (config.debugging) {
-        Utils.print(`Script is in debugging mode`);
+    if (config.debugging.isEnabled) {
+        Utils.print(`Script is in ${colors.blue('debugging')} mode`);
     }
-    Utils.print(`Script is executing on: ${config.testnet ? 'testnet': 'mainnet'}`);
+    if (config.sniper.enableWithdraw) {
+        Utils.print(`Withdrawing is ${colors.green('enabled')}.`);
+    }
+    Utils.print(`Script is executing on: ${config.testnet ? colors.red('testnet') : colors.yellow('mainnet')}`);
 }
 
 function init() {
     Utils.print("Initializing...");
     let tries = 0;
     while(nodeInSync() === false) {
-        Utils.print("Node has not started. Please start your node or switch to a different Node URL.");
+        Utils.print(colors.red("Node has not started. Please start your node or switch to a different Node URL."));
         setTimeout(dummyfunc, 5000);        
         tries++;
         if (tries>20){
-            Utils.print("Aborting startup.");
+            Utils.print(colors.red("Aborting startup."));
             process.exit(2);
         }
     }
     Utils.print("Node is synced!");
-    if (config.debugging) {
-        Utils.debug(`Started new Debugging session!`);
+    if (config.debugging.isEnabled) {
+        Utils.debug(`Started new Debugging session!`, "info", false);
     }
 }
 
@@ -149,23 +158,23 @@ function pollContract(blockHeader) {
         loop(result);
     });
     //Utils.debug(JSON.stringify(blockHeader, null, 2));
-    Sniper.updateBlockInformation(blockHeader);
+    Blocks.updateBlockInformation(blockHeader);
 }
 
 /*
 Loop determines the amount of time to wait untill the next polling query is sent
 */
-function loop(timeLeft) {
+function loop(remainingTime) {
     innerLoop();
-    displayTimeLeft(timeLeft);
+    displayTimeLeft(remainingTime);
     getCurrentPlayer();
 
-    if (isNaN(timeLeft)) {
+    if (isNaN(remainingTime)) {
         Utils.print("Node returned bad result.");
         return;
     }
     // check if we're in ICO
-    if (timeLeft <= 60  && ICOSupported) {
+    if (remainingTime <= 60  && ICOSupported) {
         detectICO().then(result => {
             Utils.debug(`[loop] ICO result: ${result}`);
             // explicit checks because result could be anything.
@@ -175,41 +184,29 @@ function loop(timeLeft) {
                     Ascii.printICOLarge();
                 }
                 Utils.print("CONTRACT IN ICO PHASE!");
-                Utils.print(`${timeLeft} SECONDS LEFT`);
+                Utils.print(`${remainingTime} SECONDS LEFT`);
                 Utils.insertDividerLine();
                 notifyAll(5);
                 roundEnded = true;
                 if (config.sniper.isEnabled) {
-                    Sniper.snipeICO(timeLeft, tmpRndNum);
+                    Sniper.snipeICO(remainingTime, tmpRndNum);
                 }
             } 
             if (result === false) {
-                Utils.debug(`NOT in ICO.`);
+                if (remainingTime == 0) {
+                    Utils.debug(`Round has ended. Waiting for next round`, "info");
+                } else {
+                    Utils.debug(`NOT in ICO.`, "info");
+                }
             }
         });
     }
-    /*
-    if (inICO) {
-        Utils.insertDividerLine();
-        if (config.useAscii) {
-            Ascii.printICOLarge();
-        }
-        Utils.print("CONTRACT IN ICO PHASE!");
-        Utils.print(`${timeLeft} SECONDS LEFT`);
-        Utils.insertDividerLine();
-        notifyAll(5);
-        roundEnded = true;
-        if (config.sniper.isEnabled) {
-            Sniper.snipeICO(timeLeft, tmpRndNum);
-        }
-    }
-    */
     //Clean up after ICO.
-    if (roundEnded && timeLeft > 200) {
+    if (roundEnded && remainingTime > 200) {
         cleanUp();
     }
 
-    if (timeLeft < threshold + 5) {
+    if (remainingTime < threshold + 5 && remainingTime > 0) {
         // notify user.
         process.stdout.write('\n');
         Utils.insertDividerLine();
@@ -219,14 +216,21 @@ function loop(timeLeft) {
         Utils.print("WAKE UP");
         Utils.insertDividerLine();
         process.stdout.write('\n');
-        if (timeLeft < 10) {
+        if (remainingTime < 10) {
             notifyAll(3);
         } else {
             notifyAll(3);
         }        
         return;
+    }
+
+    if (remainingTime == 0) {
+        Utils.print(`Round has ended waiting for next round.`);
+        if(config.useAscii) {
+            Ascii.printGGSmall();
+        }
     } 
-    lastTimeLeft = timeLeft;
+    lastTimeLeft = remainingTime;
 }
 
 function innerLoop() {
@@ -241,15 +245,16 @@ function innerLoop() {
     }
 
     if (loopCnt3 > 30) {
-        Sniper.displayBlockTime();
+        Blocks.displayBlockTime();
         loopCnt3 = 0;
     }
 
-    if (loopCnt2 > 50 && config.debugging) {
+    if (loopCnt2 > 50 && config.debugging.isEnabled) {
+        // shwo bot balance every 50 blocks.
+        Sniper.logPlayer("", true);
         PlayerBook.removeInactivePlayers();
-        //Utils.logStackTrace(false);
         var memory =process.memoryUsage();
-        Utils.debug(`${memory.heapUsed}/${memory.heapTotal} used.`, false);
+        Utils.debug(`${memory.heapUsed}/${memory.heapTotal} used.`, "info", false);
         loopCnt2 = 0;
     }
 }
@@ -264,20 +269,18 @@ function notifyAll(numBeeps) {
 }
 
 function outputPlayer(addr, balance) {
-    setTimeout(dummyfunc, 1000);
-    if (currentPlayerBalance !== 0.0) {
+    if (balance !== 0.0) {
         if(isOwnAddress(addr)) {
-        } else {
             Utils.print(`[o] You are the exit scammer`);
-        }
+        } else {
             Utils.print(`[o] Current Exit Scammer is: ${addr}`);
+        }
     } else {
         if(isOwnAddress(addr)) {
             Utils.print(`[o] You are the current exit scammer!`);
         } else {
             Utils.print(`[o] Current Exit Scammer is: ${addr}`);
         }
-
     }
 }
 
@@ -311,14 +314,15 @@ function displayTimeLeft(time) {
 }
 
 function getCurrentPlayer() {
+    // async retrievals can still fail. 
     Contract.getCurrentRoundInfo().then(result => {
+        if(result == undefined) return; // check if null. 
         currentPlayerAddr = result[7];
-        //Utils.debug(`Fetched round object: ${JSON.stringify(result)}`);
+        Utils.debug(`Fetched round object: ${JSON.stringify(result)}`, "debug", false);
 
         // check if player is in book
         PlayerBook.processPlayer(result[7]).then(playerResult => {
             // if player obj is empty go to old display method.
-            Utils.debug(`Fetched player object in CLI: ${JSON.stringify(playerResult)}`);
             if (playerResult === null || playerResult === undefined) {
                 Contract.getBalanceAddress(result[7]).then(balanceResult => {
                     outputPlayer(result[7], balanceResult);
@@ -352,58 +356,31 @@ function displayPot() {
     Utils.insertDividerLine();
 }
 
-/**
- * Detects if round has ended and is in ICO phase. ICO is detected by retrieving the round number. 
- * If the numbers differ the round has ended.
-*/
-/* 
-function detectICO() {
-    getCurrentRndNumber();
-    Utils.debug("Tmp round num:" + tmpRndNum);
-    Utils.debug("current rnd num:" + rndNumber);
-    
-    if (rndNumber == (tmpRndNum - 1) ) {
-        Utils.insertDividerLine();
-        Utils.print("We are in ICO!");
-        Utils.debug("We are in ICO");
-        Utils.insertDividerLine();
-        roundEnded = true;
-    } else {
-        Utils.debug("We are NOT in ICO");
-    }
-    return roundEnded;
-}
-*/
-/*
-function detectICO() {
-    let inICO = false;
-    Contract.getCurrentRoundInfo().then(result => {
-        // convert getTime() to seconds.
-        var currentTime = Math.round((new Date()).getTime() / 1000);
-        var startTime = result[4];
-        var difference = currentTime - startTime;
-        inICO =  (difference <= config.sniper.abortICO);
-        Utils.debug(`${currentTime}, ${startTime}, ${difference}`);
-        Utils.debug(`We are in ICO: ${inICO}`);
-       // inICO = true;
-    });
-}
-*/
 async function detectICO() {
-    
-    var prom = Contract.getCurrentRoundInfo().then(result => {
+    var start = performance.now();
+    var promise = Contract.getCurrentRoundInfo().then(result => {
         // convert getTime() to seconds.
         var currentTime = Math.round((new Date()).getTime() / 1000);
         var startTime = result[4];
         var difference = currentTime - startTime;
+        if (difference < 60) {
+            Utils.print(`New round started in last 60 seconds...`);
+
+            if (difference > 30 ) {
+                Utils.print(colors.red(`Too late to enter ICO now.`));
+            }
+        }
+        // Check if the difference is under the threshold.
         inICO =  (difference <= config.sniper.abortICO);
-       // Utils.print((difference <= config.sniper.abortICO));
-        Utils.debug(`${currentTime}, ${startTime}, ${difference}`);
-        Utils.debug(`[DetectICO] We are in ICO: ${inICO}`);
+        Utils.debug(`[DetectICO] Current: ${currentTime}, Start: ${startTime}, Diff: ${difference}`, "info");
+        Utils.debug(`[DetectICO] We are in ICO: ${inICO}`, "info");
+
         return inICO;
     });
 
-    return await prom;
+    promise = await promise;
+    Utils.debug(`detectICO took ${performance.now() - start} ms`, "perf");
+    return promise;
 }
 
 // update vars after ICO phase concluded. Reset round variables for new round.
@@ -428,12 +405,19 @@ function cleanUp() {
   // catch ctrl+c event and exit normally
  process.on('SIGINT', function () {
     if(config.sniper.isEnabled) {
-        Sniper.logPlayer("Shutting down");
+        Utils.print(`Finishing logging...`);
+        Sniper.endSession();
     }
-    Utils.print('Ctrl-C...');
+    Sniper.exit();
+    Utils.print(`Ctrl-C.... Shutting down in 5 seconds.`);
+    setTimeout(exit, 5000);
+});
+
+function exit() {
     Utils.exitProgram();
     process.exit(2);
- });
+}
+
 
 main();
 

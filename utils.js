@@ -9,9 +9,19 @@ const debugLog = fs.createWriteStream(config.debugLog, {flags: 'a'});
 const errorLog = fs.createWriteStream(config.errorLog, {flags: 'a'});
 //#endregion
 
+var debugLevels = {
+    "debug": 0,
+    "performance": 1,
+    "perf": 1,
+    "info": 1,
+    "severe": 2, 
+    "critical": 3,
+};
+var level = debugLevels[config.debugging.debugLevel];
+
 //Convert wei to ETH.
 function weiToETH(value) {
-    return web3.utils.fromWei(value, 'ether');
+    return web3.utils.fromWei(value.toString(), 'ether');
 }
 
 // Prepend timestamps for each written log.
@@ -36,16 +46,23 @@ function padLength(message, len, character){
     return message;
 }
 
+function getDebugLevel(lvl) {
+    return lvl === undefined ? debugLevels[config.debugging.debugLevel] : debugLevels[lvl]; 
+}
+
 /**
  * Write debugging messages to debug log. Optional flag for writing debug messages to regular log.
  * @param {string} message
  * @param {boolean} writeToLog
  */
-function debug(message, writeToLog) {
-    var msg = timestamp() + "[DEBUG] " + message + '\n';
-    debugLog.write(msg);
-    if(writeToLog != undefined && writeToLog) {
-        logFile.write(msg);
+function debug(message, debugLevel,  writeToLog) {
+    // remove spammy commands to lower levels. 
+    if (debugLevel !== undefined && getDebugLevel(debugLevel) >= level){
+        var msg = `${timestamp()}[DEBUG][${debugLevel.toUpperCase()}] ${message} \n`;
+        debugLog.write(msg);
+        if(writeToLog != undefined && writeToLog) {
+            logFile.write(msg);
+        }
     }
 }
 
@@ -96,7 +113,7 @@ function separateLines() {
  * Closes output streams before exiting.
  */
 function exitProgram() {
-    debug(`Finished debugging session.`);
+    debug(`Finished debugging session.`, "info");
     error(`Finished error logging`);
     logFile.close();
     debugLog.close();
