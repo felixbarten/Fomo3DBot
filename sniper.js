@@ -46,7 +46,7 @@ var teams = {
 };
 
 function initialize() {
-
+    var start = performance.now();
     Contract.getNonce(config.sniper.walletAddr).then(result => {
         accountNonce = result;
     });
@@ -57,6 +57,7 @@ function initialize() {
     });
     
     console.log(`default account is: ${web3.eth.defaultAccount}`);
+    Utils.debug(`initialize took ${performance.now() - start} ms`, "perf");
 }
 
 /**
@@ -65,10 +66,11 @@ function initialize() {
  */
 // Logs the bot actions in a human readable log file. 
 function logPlayer(event, toConsole) {
+    var start = performance.now();
     let botBalance = web3.utils.toBN(0);
     let winnings = web3.utils.toBN(0);
 
-    Contract.getVaultBalance().then(result => {
+    Contract.getVaultBalance(config.sniper.walletAddr).then(result => {
         //get winnings from winning, affiliate and dividends.
         Utils.debug(`GetVaultBalance result: ${JSON.stringify(result)}`);
         var exitScammed = web3.utils.toBN(result[4]);
@@ -86,7 +88,7 @@ function logPlayer(event, toConsole) {
             var totalAffiliateWei = Number(affiliateShare) * Number(buyTransactions);
             var totalAffiliateETH = web3.utils.fromWei(web3.utils.toBN(totalAffiliateWei), 'ether');
             if (toConsole) {
-                printProgress(total);
+                printProgress(botBalance, winnings, total);
             }
             
             // only trigger on first run.
@@ -109,11 +111,24 @@ function logPlayer(event, toConsole) {
             }
         });
     });
+    Utils.debug(`logplayer took ${performance.now() - start} ms`, "perf");
 }
 
-function printProgress(current) {
+async function getAffiliateVault() {
+    var affiliatePromise = Contract.getVaultBalance(config.sniper.affiliateAddress).then(result => {
+        if(result === undefined) {
+            Utils.print(`Could not determine affiliate vault contents.`);
+            return;
+        }
+        return web3.utils.toBN(result[3]);
+    });
+    return await affiliatePromise;
+}
+
+function printProgress(balance, winnings, currentBalance) {
     Utils.insertDividerLine();
-    Utils.print(`Bot report: Started session with: ${startAmount} ETH, Current: ${current} ETH.`);
+    Utils.print(`Bot report: Started session with: ${startAmount} ETH, Current: ${balance} ETH.`);
+    Utils.print(`Bot's vault is currently: ${winnings} ETH. Total: ${currentBalance}.`);
     Utils.insertDividerLine();
 }
 
@@ -305,12 +320,14 @@ function buyICOKeys(roundNum) {
             transactionLog.write(`Transaction sent: ${hash}\n`);
             accountLog.write(`${Utils.timestamp()} Sent ICO bid of ${web3.utils.fromWei(buyin, 'ether')} ETH. \n`);
             Utils.insertDividerLine();
-            transactions.push({
+            let tmpTransaction = {
                 roundID: roundNum,
                 type: 'buy',
                 txhash: hash,
                 date: new Date()
-            });
+            };
+            transactionsJson.write(JSON.stringify(tmpTransaction));
+            transactions.push(tmpTransaction);
         })
         .on('confirmation', function(confirmationNumber, receipt){
             if(confirmationNumber < 5) {
@@ -392,13 +409,14 @@ async function cancelTransaction(roundNum){
             accountLog.write(`${Utils.timestamp()} Sent cancelling transaction.`);
 
             Utils.insertDividerLine();
-
-            transactions.push({
+            let tmpTransaction = {
                 roundID: roundNum,
                 type: 'cancel',
                 txhash: hash,
                 date: new Date()
-            });
+            };
+            transmissionsJson.write(`${tmpTransaction} \n`);
+            transactions.push(tmpTransaction);
         })
         .on("receipt", function(receipt) {
             Utils.print(JSON.stringify(receipt));
@@ -434,12 +452,14 @@ async function transfer(addr) {
             Utils.print(`Transaction sent: ${hash}`);
             transactionLog.write(`Transaction sent: ${hash}`);
             Utils.insertDividerLine();
-            transactions.push({
+            var tmpTransaction = {
                 roundID: 0,
                 type: 'transfer',
                 txhash: hash,
                 date: new Date()
-            });
+            };
+            transactionsJson.write(JSON.stringify(tmpTransaction));
+            transactions.push();
         })
         .on('confirmation', function(confirmationNumber, receipt){
             Utils.print(`Transaction is confirmed: ${confirmationNumber} times`);
@@ -478,6 +498,11 @@ async function withdrawCTR(amount, overrideNonce){
         }
         var gasPrice = web3.utils.toWei(config.sniper.withdrawGas, 'gwei');
         Contract.getGasPrice().then(result => {
+            //err handling
+            if (result === undefined) {
+                Utils.print(`Can't withdraw right now.`);
+                return;
+            }
             var gas=  web3.utils.fromWei(result, 'gwei');      
             gas = Number(gas) + Number(2);
             gasPrice = web3.utils.toWei(gas.toString(), 'gwei');
@@ -495,15 +520,15 @@ async function withdrawCTR(amount, overrideNonce){
                 withdrawals.push(amount);
                 accountLog.write(`${Utils.timestamp()} Withdrawing ${amount} ETH from Vault. \n`);
                 Utils.insertDividerLine();
-                
-
-                transactions.push({
+                let tmpTransaction = {
                     roundID: 0,
                     type: 'withdraw',
                     txhash: hash,
                     gasPrice: gasPrice,
                     date: new Date()
-                });
+                };
+                transactionsJson.write(JSON.stringify(tmpTransaction));
+                transactions.push(tmpTransaction);
             })
             .on('confirmation', function(confirmationNumber, receipt){
                 if (confirmationNumber < 5) {
@@ -539,8 +564,9 @@ function buyOneKey() {
         }
         var priceWei = result;
         // increase key price by 2% so if someone right before us buys a key we still are in the lead.... I guess. 5% would be safer but less profit.
-        var adjustedPrice = Number(priceWei) * Number(1.02);
-        Utils.debug(`Key price is ${Utils.weiToETH(priceWei)} ETH. Adjusted to: ${Utils.weiToETH(adjustedPrice)} ETH`, "info");
+        // make sure its a whole integer. BN.js doesn't like a lot of things and decimals are one of them.
+        var adjustedPrice = Math.round(Number(priceWei) * Number(1.02));
+        Utils.debug(`Key price is ${web3.utils.fromWei(priceWei.toString(), 'ether')} ETH. Adjusted to: ${web3.utils.fromWei(adjustedPrice.toString(), 'ether')} ETH`, "info");
       
         buyKey(adjustedPrice);
 
@@ -575,19 +601,16 @@ async function buyKey(keyPrice) {
             transactionLog.write(`Transaction sent: ${hash}\n`);
             accountLog.write(`${Utils.timestamp()} Sent ICO bid of ${web3.utils.fromWei(buyin, 'ether')} ETH. \n`);
             Utils.insertDividerLine();
-            /*
-            in some rare cases this method can fire twice if there are two really fast blocks one after the other. 
-            One option is to just let them happen. usually money thrown in ICO yields a 50% loss to a 50+% profit. 
-            Alternatively this flag can be switched earlier in the method to prevent double spending if at all possible. 
-            */
             transactionSent = true; 
-            transactions.push({
+            let tmpTransaction = {
                 roundID: 0,
                 type: 'buy key',
                 txhash: hash,
                 buyin: keyPrice,
                 date: new Date()
-            });
+            };
+            transactions.push(tmpTransaction);
+            transactionsJson.write(JSON.stringify(tmpTransaction));
         })
         .on('confirmation', function(confirmationNumber, receipt){
             if(confirmationNumber < 5) {
@@ -679,7 +702,7 @@ function displayPotResult(vault) {
 }
 
 function withdrawOrPostpone() {
-    Contract.getVaultBalance().then(result => {
+    Contract.getVaultBalance(config.sniper.walletAddr).then(result => {
         //get winnings from winning, affiliate and dividends.
         Utils.debug(`GetVaultBalance result: ${JSON.stringify(result)}`);
         var exitScammed = web3.utils.toBN(result[4]);
@@ -746,8 +769,8 @@ function exit() {
     var vaultBalance = 0; 
     var total = Number(botBalance) + Number(vaultBalance); 
     // dump transactions to JSON.
-    transactionsJson.write(transactions);
-    transActionJson.close();
+    transactionsJson.write(JSON.stringify(transactions));
+    transactionsJson.close();
 
     endOfSession();
     accountLog.write(`End of session: Started with: ${startAmount} ended with: ${total}. \n`);

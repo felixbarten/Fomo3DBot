@@ -14,7 +14,7 @@ const beep = require('beepbeep');
 const Ascii = require('./ascii.js');
 const Contract = require('./contract.js');
 const Blocks = require('./blocktimes.js');
-const colors = require('colors/safe')
+const colors = require('colors/safe');
 const {
     performance,
     PerformanceObserver
@@ -32,13 +32,15 @@ var GameContract = new web3.eth.Contract(contractAbi, contractAddr);
 
 var currentPot = 0;
 var rndNumber = 0;
-var lastTimeLeft = 0;
+// initialize with time script is called. 
+var lastTimeLeft = Math.round((new Date()).getTime() / 1000);
+var lastContractTime = config.contractMaxTime + 100;
 // get vars from config.
 var threshold = config.timerThreshold;
 var waitTime = config.waitTime;
 var currentPlayerAddr = "";
 var currentPlayerBalance = 0.0;
-var loopCnt=0, loopCnt2=0, loopCnt3=0;
+var playerBookCounter=0, displayCounter=0, statisticsCounter=0;
 var ICOSupported = config.ICO;
 var roundEnded = false;
 var tmpRndNum = 0;
@@ -62,9 +64,13 @@ function main() {
     });
     // initialize vars
     Contract.getCurrentRoundInfo().then(result => {
-        rndNumber = result[1];
-        currentPot = Utils.weiToETH(result[5]);
-        displayPot();
+        if (result !== undefined) {
+            rndNumber = result[1];
+            currentPot = Utils.weiToETH(result[5]);
+            displayPot();
+        } else {
+            Utils.print(`Problem fetching current round...`);
+        }
     });
     //start loop
     subscribe();
@@ -101,6 +107,12 @@ function init() {
     if (config.debugging.isEnabled) {
         Utils.debug(`Started new Debugging session!`, "info", false);
     }
+    // setting up for first run time.
+    Contract.getRemainingContractTime().then(result => {
+        if (result !== undefined) {
+            updateTimers(result);
+        }
+    })
 }
 
 //#region Node status
@@ -165,6 +177,10 @@ function pollContract(blockHeader) {
 Loop determines the amount of time to wait untill the next polling query is sent
 */
 function loop(remainingTime) {
+    var valid = checkTimeValidity(remainingTime);
+    if (valid != remainingTime) {
+        Utils.print(`Detected anomalous data from contract timer should be: ~${valid} seconds left on contract`);
+    }
     innerLoop();
     displayTimeLeft(remainingTime);
     getCurrentPlayer();
@@ -234,29 +250,64 @@ function loop(remainingTime) {
 }
 
 function innerLoop() {
-    loopCnt++;
-    loopCnt2++;
-    loopCnt3++;
+    playerBookCounter++;
+    displayCounter++;
+    statisticsCounter++;
     // if it's a healthy pot this should display once every 5 minutes.
-    if (loopCnt > 20) {
+    if (playerBookCounter > 20) {
         PlayerBook.viewPlayerBook();
-        loopCnt = 0;
+        playerBookCounter = 0;
         updateVars();
     }
 
-    if (loopCnt3 > 30) {
+    if (statisticsCounter > 30) {
         Blocks.displayBlockTime();
-        loopCnt3 = 0;
+        statisticsCounter = 0;
     }
 
-    if (loopCnt2 > 50 && config.debugging.isEnabled) {
-        // shwo bot balance every 50 blocks.
+    if (displayCounter > 50 && config.debugging.isEnabled) {
+        // show bot balance every 50 blocks.
         Sniper.logPlayer("", true);
         PlayerBook.removeInactivePlayers();
         var memory =process.memoryUsage();
         Utils.debug(`${memory.heapUsed}/${memory.heapTotal} used.`, "info", false);
-        loopCnt2 = 0;
+        displayCounter = 0;
     }
+}
+
+/**
+ * Checks if value received from contract is acccurate. Compares last execution time (in seconds) to current execution time and then examines if the contract time is accurate.
+ * Only works for short, obviously.
+ * @param {Number} time The time remaining on the contract
+ */
+function checkTimeValidity(time) {
+    let start = performance.now();
+    let isValid = false;
+    let threshold = 5;
+    // check if value from contract is actually possible.
+    let difference = Number(Math.round((new Date()).getTime()) / 1000) - Number(lastTimeLeft);
+    let contractDiff = lastContractTime - time;
+    Utils.debug(`Diff: ${difference}, last time ${lastContractTime}, current time: ${time}`, "info");
+    // if last time - current time is within bounds return value. 
+    if (contractDiff > 0 && contractDiff < (Number(difference) + Number(threshold))) {
+        isValid = true;
+        updateTimers(time);
+    } else if (contractDiff < 0 && (config.contractMaxTime - contractDiff) < (Number(difference) + Number(threshold))) {
+        isValid = true;
+        updateTimers(time);
+    }
+    // Don't freak out when round ends.
+    if (lastContractTime == time && time == 0) {
+        isValid = true;
+        updateTimers(time);
+    }
+    Utils.debug(`checkTimeValidity took: ${performance.now() - start} ms`, "perf");
+    return isValid ? time : Number(lastContractTime) - Number(difference);
+}
+
+function updateTimers(time) {
+    lastContractTime = time;
+    lastTimeLeft = Math.round((new Date()).getTime() / 1000);
 }
 
 // Sends repeating beeping sound
@@ -309,7 +360,19 @@ function displayTimeLeft(time) {
         let seconds = (time - (hours * 3600)) % 60;
         Utils.print(`Time left on contract: ${hours} Hours, ${minutes} Minutes and ${seconds} seconds.`);
     } else {
-        Utils.print(`Time left on contract: ${time} seconds`);
+        if(config.useTimeColors) {
+            let timeMsg = "";
+            if (time > 60) {
+                timeMsg = colors.green(time);
+            } else if (time <= 75 && time >30) {
+                timeMsg = colors.yellow(time);
+            } else {
+                timeMsg = colors.red(time);
+            }
+            Utils.print(`Time left on contract: ${timeMsg} seconds`);
+        } else {
+            Utils.print(`Time left on contract: ${time} seconds`);
+        }
     }
 }
 
@@ -359,6 +422,10 @@ function displayPot() {
 async function detectICO() {
     var start = performance.now();
     var promise = Contract.getCurrentRoundInfo().then(result => {
+        if(result === undefined) {
+            Utils.print(`Could not get ICO state...`);
+            return;
+        }
         // convert getTime() to seconds.
         var currentTime = Math.round((new Date()).getTime() / 1000);
         var startTime = result[4];

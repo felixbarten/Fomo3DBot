@@ -26,9 +26,9 @@ async function getNonce() {
 }
 
 // Returns the balance of the player 
-async function getVaultBalance() {
+async function getVaultBalance(address) {
     try{
-        return await  GameContract.methods.getPlayerInfoByAddress(config.sniper.walletAddr).call();
+        return await  GameContract.methods.getPlayerInfoByAddress(address).call();
     } catch(e) {
         Utils.error(`Couldn't retrieve vault balance. ${e}`, "ERR");
     } 
