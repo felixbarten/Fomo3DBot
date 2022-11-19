@@ -1,5 +1,7 @@
 # FOMO3DBot
 
+A bot for automated playing of a long forgotten smart contract game. 
+
 ## What is Fomo3D
 
 Fomo3d was a popular game on the Ethereum blockchain back in 2017. It was a ponzi scheme type game that put a severe strain on the network for the time it was popular. 
